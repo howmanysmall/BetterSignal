@@ -1,3 +1,6 @@
+--!native
+--!optimize 2
+
 -- -----------------------------------------------------------------------------
 --               Batched Yield-Safe Signal Implementation                     --
 -- This is a Signal class which has effectively identical behavior to a       --
@@ -145,33 +148,9 @@ Signal.__index = Signal
 ]=]
 function Signal.new(janitor)
 	local self = setmetatable({
-		Event = newproxy(true);
 		_handlerListHead = false;
 		_proxyHandler = nil;
 	}, Signal)
-
-	local Metatable = getmetatable(self.Event)
-	function Metatable.__index(_, Index)
-		if Index == "Connect" or Index == "connect" then
-			return function(_, Function)
-				return self:Connect(Function)
-			end
-		elseif Index == "Wait" or Index == "wait" then
-			return function()
-				return self:Wait()
-			end
-		elseif Index == "Once" then
-			return function(_, Function)
-				return self:ConnectOnce(Function)
-			end
-		else
-			error(`{Index} is not a valid member of RBXScriptSignal`, 3)
-		end
-	end
-
-	function Metatable.__tostring()
-		return "Signal Event"
-	end
 
 	if janitor then
 		janitor:Add(self, "Destroy")
@@ -209,6 +188,12 @@ end
 	@return boolean -- `true` if the object is a Signal.
 ]=]
 function Signal.Is(obj)
+	return type(obj) == "table" and getmetatable(obj) == Signal
+end
+function Signal.instanceof(obj)
+	if obj == Signal then
+		return true
+	end
 	return type(obj) == "table" and getmetatable(obj) == Signal
 end
 
@@ -424,6 +409,29 @@ export type Signal<Values...> = {
 	Wait: (self: Signal<Values...>) -> Values...,
 	Destroy: (self: Signal<Values...>) -> (),
 }
+export type VoidSignal = Signal<>
+export type SmartSignal<Function, Values...> = {
+	ClassName: "Signal",
 
-table.freeze(Signal)
-return Signal
+	Connect: (self: SmartSignal<Function, Values...>, Function: Function) -> RBXScriptConnection,
+	Once: (self: SmartSignal<Function, Values...>, Function: Function) -> RBXScriptConnection,
+	ConnectOnce: (self: SmartSignal<Function, Values...>, Function: Function) -> RBXScriptConnection,
+	GetConnections: (self: SmartSignal<Function, Values...>) -> {RBXScriptConnection},
+	DisconnectAll: (self: SmartSignal<Function, Values...>) -> (),
+	Fire: (self: SmartSignal<Function, Values...>, Values...) -> (),
+	FireDeferred: (self: SmartSignal<Function, Values...>, Values...) -> (),
+	Wait: (self: SmartSignal<Function, Values...>) -> Values...,
+	Destroy: (self: SmartSignal<Function, Values...>) -> (),
+}
+
+type WrapGeneric = (rbxScriptSignal: RBXScriptSignal, janitor: unknown) -> SmartSignal<(...any) -> (), ...any>
+type Wrap = WrapGeneric
+
+return table.freeze(Signal :: never) :: {
+	ClassName: "Signal",
+
+	new: <Function, Values...>(janitor: unknown) -> SmartSignal<Function, Values...>,
+	Wrap: Wrap,
+	Is: (value: any) -> boolean,
+	instanceof: (value: any) -> boolean,
+}
