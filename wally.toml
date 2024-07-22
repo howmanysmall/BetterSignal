@@ -5,6 +5,6 @@ registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 description = "A slightly modified Signal library."
 license = "MIT"
-exclude = [".gitignore", "rokit.toml", "selene.toml", "sourcemap.json", "stylua.toml"]
+exclude = [".gitignore", "rokit.toml", "selene.toml", "sourcemap.json", "stylua.toml", "LICENSE", "README.md"]
 
 [dependencies]
