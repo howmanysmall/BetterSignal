@@ -272,6 +272,9 @@ function Signal:GetConnections()
 
 	return items
 end
+function Signal:IsConnectedTo()
+	return not not self._handlerListHead
+end
 
 -- Disconnect all handlers. Since we use a linked list it suffices to clear the
 -- reference to the head handler.
@@ -403,6 +406,7 @@ export type Signal<Values...> = {
 	Once: (self: Signal<Values...>, Function: (Values...) -> ()) -> RBXScriptConnection,
 	ConnectOnce: (self: Signal<Values...>, Function: (Values...) -> ()) -> RBXScriptConnection,
 	GetConnections: (self: Signal<Values...>) -> {RBXScriptConnection},
+	IsConnectedTo: (self: Signal<Values...>) -> boolean,
 	DisconnectAll: (self: Signal<Values...>) -> (),
 	Fire: (self: Signal<Values...>, Values...) -> (),
 	FireDeferred: (self: Signal<Values...>, Values...) -> (),
@@ -417,6 +421,7 @@ export type SmartSignal<Function, Values...> = {
 	Once: (self: SmartSignal<Function, Values...>, Function: Function) -> RBXScriptConnection,
 	ConnectOnce: (self: SmartSignal<Function, Values...>, Function: Function) -> RBXScriptConnection,
 	GetConnections: (self: SmartSignal<Function, Values...>) -> {RBXScriptConnection},
+	IsConnectedTo: (self: SmartSignal<Function, Values...>) -> boolean,
 	DisconnectAll: (self: SmartSignal<Function, Values...>) -> (),
 	Fire: (self: SmartSignal<Function, Values...>, Values...) -> (),
 	FireDeferred: (self: SmartSignal<Function, Values...>, Values...) -> (),
