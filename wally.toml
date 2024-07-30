@@ -24,6 +24,8 @@ exclude = [
 	"*.rbxl.lock",
 	"**/*.rbx[lm]*",
 	"dist",
+	"**/__tests__",
+	"**/jest.config.luau",
 ]
 include = ["src", "wally.toml"]
 

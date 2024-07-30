@@ -6,11 +6,11 @@ local processServiceExists, ProcessService = pcall(function()
 	return game:GetService(s)
 end)
 
-local status, result = Jest.runCLI(ReplicatedStorage.Packages.Signal, {
+local status, result = Jest.runCLI(ReplicatedStorage.Signal, {
 	verbose = true;
 	all = true;
 	ci = false;
-}, {ReplicatedStorage.Packages.Signal}):awaitStatus()
+}, {ReplicatedStorage.Signal}):awaitStatus()
 
 if status == "Rejected" then
 	print(result)

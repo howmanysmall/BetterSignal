@@ -155,6 +155,10 @@ export type Signal<Function, Arguments...> = {
 	Once: (self: Signal<Function, Arguments...>, Function: Function) -> Connection,
 	ConnectOnce: (self: Signal<Function, Arguments...>, Function: Function) -> Connection,
 
+	ConnectClassic: (self: Signal<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
+	OnceClassic: (self: Signal<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
+	ConnectOnceClassic: (self: Signal<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
+
 	GetConnections: (self: Signal<Function, Arguments...>) -> {Connection},
 	IsConnectedTo: (self: Signal<Function, Arguments...>) -> boolean,
 
@@ -175,6 +179,10 @@ type Private<Function, Arguments...> = {
 	Connect: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
 	Once: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
 	ConnectOnce: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
+
+	ConnectClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
+	OnceClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
+	ConnectOnceClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
 
 	GetConnections: (self: Private<Function, Arguments...>) -> {Connection},
 	IsConnectedTo: (self: Private<Function, Arguments...>) -> boolean,
@@ -366,6 +374,30 @@ function Signal:Once(callback)
 
 	return connection
 end
+
+--[=[
+	The exact same as [Signal.Connect], but it returns an [RBXScriptConnection]
+	instead.
+
+	@method ConnectClassic
+	@within Signal
+
+	@param callback (Arguments...) -> () -- The function you are connecting.
+	@returns RBXScriptConnection
+]=]
+Signal.ConnectClassic = Signal.Connect :: never
+Signal.ConnectOnceClassic = Signal.ConnectOnce :: never
+--[=[
+	The exact same as [Signal.Once], but it returns an [RBXScriptConnection]
+	instead.
+
+	@method OnceClassic
+	@within Signal
+
+	@param callback (Arguments...) -> () -- The function you are connecting.
+	@returns RBXScriptConnection
+]=]
+Signal.OnceClassic = Signal.Once :: never
 
 --[=[
 	Gets all the connections in the signal.
