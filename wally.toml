@@ -1,10 +1,10 @@
 [package]
 name = "howmanysmall/better-signal"
-version = "1.0.2"
+version = "1.1.0"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 description = "A slightly modified Signal library."
 license = "MIT"
-exclude = [".gitignore", "rokit.toml", "selene.toml", "sourcemap.json", "stylua.toml", "LICENSE", "README.md"]
+exclude = [".gitignore", "rokit.toml", "selene.toml", "sourcemap.json", "stylua.toml", "*.yml"]
 
 [dependencies]

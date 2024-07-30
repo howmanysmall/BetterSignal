@@ -1,5 +1,6 @@
 --!native
 --!optimize 2
+--!strict
 
 -- -----------------------------------------------------------------------------
 --               Batched Yield-Safe Signal Implementation                     --
@@ -35,10 +36,10 @@ local freeRunnerThread = nil
 -- currently idle one.
 -- If there was a currently idle runner thread already, that's okay, that old
 -- one will just get thrown and eventually GCed.
-local function acquireRunnerThreadAndCallEventHandler(fn, ...)
+local function acquireRunnerThreadAndCallEventHandler(callback, ...)
 	local acquiredRunnerThread = freeRunnerThread
 	freeRunnerThread = nil
-	fn(...)
+	callback(...)
 	-- The handler finished running, this runner thread is free again.
 	freeRunnerThread = acquiredRunnerThread
 end

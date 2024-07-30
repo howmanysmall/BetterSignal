@@ -1,1 +1,9 @@
-std = "roblox+luau"
+std = "lune+testez"
+exclude = [".lune/*", ".typedefs/*"]
+
+[config]
+# Allow for `_G.__DEV__` (etc) with packages like React-lua
+global_usage = { ignore_pattern = "^__" }
+
+[rules]
+global_usage = "allow"
