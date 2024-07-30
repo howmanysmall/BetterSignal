@@ -172,6 +172,29 @@ export type Signal<Function, Arguments...> = {
 	Destroy: (self: Signal<Function, Arguments...>) -> (),
 }
 export type VoidSignal = Signal<() -> ()>
+export type SmartSignal<Function, Arguments...> = Signal<Function, Arguments...>
+export type ClassicSignal<T...> = {
+	Connect: (self: ClassicSignal<T...>, Function: (T...) -> ()) -> Connection,
+	Once: (self: ClassicSignal<T...>, Function: (T...) -> ()) -> Connection,
+	ConnectOnce: (self: ClassicSignal<T...>, Function: (T...) -> ()) -> Connection,
+
+	ConnectClassic: (self: ClassicSignal<T...>, Function: (T...) -> ()) -> RBXScriptConnection,
+	OnceClassic: (self: ClassicSignal<T...>, Function: (T...) -> ()) -> RBXScriptConnection,
+	ConnectOnceClassic: (self: ClassicSignal<T...>, Function: (T...) -> ()) -> RBXScriptConnection,
+
+	GetConnections: (self: ClassicSignal<T...>) -> {Connection},
+	IsConnectedTo: (self: ClassicSignal<T...>) -> boolean,
+
+	Fire: (self: ClassicSignal<T...>, T...) -> (),
+	FireDeferred: (self: ClassicSignal<T...>, T...) -> (),
+	FireDeferredUnsafe: (self: ClassicSignal<T...>, T...) -> (),
+
+	Wait: (self: ClassicSignal<T...>) -> T...,
+
+	DisconnectAll: (self: ClassicSignal<T...>) -> (),
+	Destroy: (self: ClassicSignal<T...>) -> (),
+}
+
 type Private<Function, Arguments...> = {
 	HandlerListHead: ConnectionPrivate<Function, Arguments...>?,
 	ProxyHandler: RBXScriptConnection?,
@@ -383,7 +406,7 @@ end
 	@within Signal
 
 	@param callback (Arguments...) -> () -- The function you are connecting.
-	@returns RBXScriptConnection
+	@return RBXScriptConnection
 ]=]
 Signal.ConnectClassic = Signal.Connect :: never
 Signal.ConnectOnceClassic = Signal.ConnectOnce :: never
@@ -395,7 +418,7 @@ Signal.ConnectOnceClassic = Signal.ConnectOnce :: never
 	@within Signal
 
 	@param callback (Arguments...) -> () -- The function you are connecting.
-	@returns RBXScriptConnection
+	@return RBXScriptConnection
 ]=]
 Signal.OnceClassic = Signal.Once :: never
 

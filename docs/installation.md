@@ -18,5 +18,5 @@ Using the RepoToRoblox plugin is the easiest way to install in Studio.
 
 ```toml
 [dependencies]
-Signal = "howmanysmall/better-signal@2.0.0"
+Signal = "howmanysmall/better-signal@2.0.1"
 ```
