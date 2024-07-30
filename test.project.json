@@ -1,0 +1,16 @@
+{
+	"name": "better-signal",
+	"tree": {
+		"$className": "DataModel",
+		"ReplicatedStorage": {
+			"$className": "ReplicatedStorage",
+			"$ignoreUnknownInstances": true,
+			"Packages": {
+				"$ignoreUnknownInstances": true,
+				"$path": "Packages",
+				"Signal": {"$path": "./default.project.json"}
+			},
+			"DevPackages": {"$path": "DevPackages"}
+		}
+	}
+}

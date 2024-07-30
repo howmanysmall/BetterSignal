@@ -1,10 +1,34 @@
 [package]
 name = "howmanysmall/better-signal"
-version = "1.1.0"
+version = "2.0.0"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 description = "A slightly modified Signal library."
 license = "MIT"
-exclude = [".gitignore", "rokit.toml", "selene.toml", "sourcemap.json", "stylua.toml", "*.yml"]
+exclude = [
+	".gitignore",
+	"sourcemap.json",
+	"*.yml",
+	"*.code-workspace",
+	".lune",
+	"build",
+	"docs",
+	".vscode",
+	"*.toml",
+	"test.project.json",
+	"scripts",
+	"lua",
+	"Packages",
+	"DevPackages",
+	"*.rbxlx.lock",
+	"*.rbxl.lock",
+	"**/*.rbx[lm]*",
+	"dist",
+]
+include = ["src", "wally.toml"]
 
 [dependencies]
+
+[dev-dependencies]
+Jest = "jsdotlua/jest@3.6.1-rc.2"
+JestGlobals = "jsdotlua/jest-globals@3.6.1-rc.2"

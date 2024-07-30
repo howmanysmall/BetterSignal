@@ -2,6 +2,8 @@
 --!optimize 2
 --!strict
 
+local FastDefer = require(script.FastDefer)
+
 -- -----------------------------------------------------------------------------
 --               Batched Yield-Safe Signal Implementation                     --
 -- This is a Signal class which has effectively identical behavior to a       --
@@ -29,61 +31,88 @@
 -- -----------------------------------------------------------------------------
 
 -- The currently idle thread to run the next handler on
-local freeRunnerThread = nil
+local FreeRunnerThread: thread? = nil
 
 -- Function which acquires the currently idle handler runner thread, runs the
 -- function fn on it, and then releases the thread, returning it to being the
 -- currently idle one.
 -- If there was a currently idle runner thread already, that's okay, that old
 -- one will just get thrown and eventually GCed.
-local function acquireRunnerThreadAndCallEventHandler(callback, ...)
-	local acquiredRunnerThread = freeRunnerThread
-	freeRunnerThread = nil
+local function AcquireRunnerThreadAndCallEventHandler<Arguments...>(callback: (Arguments...) -> (), ...: Arguments...)
+	local acquiredRunnerThread = FreeRunnerThread
+	FreeRunnerThread = nil
 	callback(...)
 	-- The handler finished running, this runner thread is free again.
-	freeRunnerThread = acquiredRunnerThread
+	FreeRunnerThread = acquiredRunnerThread
 end
 
 -- Coroutine runner that we create coroutines of. The coroutine can be
 -- repeatedly resumed with functions to run followed by the argument to run
 -- them with.
-local function runEventHandlerInFreeThread(...)
-	acquireRunnerThreadAndCallEventHandler(...)
+local function RunEventHandlerInFreeThread<Arguments...>(callback: (Arguments...) -> (), ...: Arguments...)
+	AcquireRunnerThreadAndCallEventHandler(callback, ...)
 	while true do
-		acquireRunnerThreadAndCallEventHandler(coroutine.yield())
+		AcquireRunnerThreadAndCallEventHandler(coroutine.yield())
 	end
 end
 
 --[=[
-	@within Signal
-	@interface SignalConnection
-	.Connected boolean
-	.Disconnect (SignalConnection) -> ()
-
 	Represents a connection to a signal.
+
 	```lua
 	local connection = signal:Connect(function() end)
 	print(connection.Connected) --> true
 	connection:Disconnect()
 	print(connection.Connected) --> false
 	```
+
+	@interface Connection
+	@field Connected boolean
+	@field Disconnect (self: Connection) -> ()
+	@within Signal
 ]=]
 
--- Connection class
-local Connection = {}
-Connection.ClassName = "Connection"
-Connection.__index = Connection
+export type Connection = {
+	Connected: boolean,
 
-function Connection.new(signal, fn)
+	Disconnect: (self: Connection) -> (),
+	Destroy: (self: Connection) -> (),
+	disconnect: (self: Connection) -> (),
+}
+type ConnectionPrivate<Function, Arguments...> = {
+	Connected: boolean,
+
+	Function: Function,
+	Next: ConnectionPrivate<Function, Arguments...>?,
+	Signal: Private<Function, Arguments...>,
+
+	Disconnect: (self: ConnectionPrivate<Function, Arguments...>) -> (),
+	Destroy: (self: ConnectionPrivate<Function, Arguments...>) -> (),
+	disconnect: (self: ConnectionPrivate<Function, Arguments...>) -> (),
+}
+type ConnectionStatic = {
+	ClassName: "Connection",
+	new: <Function, Arguments...>(signal: Private<Function, Arguments...>, callback: Function) -> Connection,
+}
+type ConnectionStaticPrivate = ConnectionStatic & {__tostring: (self: Connection) -> string}
+
+-- Connection class
+local Connection = {} :: Connection & ConnectionStatic
+local ConnectionPrivate = Connection :: ConnectionPrivate<any, ...any> & ConnectionStaticPrivate
+Connection.ClassName = "Connection";
+(Connection :: any).__index = Connection
+
+function Connection.new<Function, Arguments...>(signal: Private<Function, Arguments...>, callback: Function): Connection
 	return setmetatable({
 		Connected = true;
-		_signal = signal;
-		_fn = fn;
-		_next = false;
-	}, Connection)
+
+		Function = callback;
+		Next = nil;
+		Signal = signal;
+	}, Connection) :: never
 end
 
-function Connection:Disconnect()
+function ConnectionPrivate:Disconnect()
 	if not self.Connected then
 		return
 	end
@@ -94,16 +123,16 @@ function Connection:Disconnect()
 	-- currently sitting on this node will be able to iterate forwards off of
 	-- it, but any subsequent fire calls will not hit it, and it will be GCed
 	-- when no more fire calls are sitting on it.
-	if self._signal._handlerListHead == self then
-		self._signal._handlerListHead = self._next
+	if self.Signal.HandlerListHead == self then
+		self.Signal.HandlerListHead = self.Next
 	else
-		local prev = self._signal._handlerListHead
-		while prev and prev._next ~= self do
-			prev = prev._next
+		local previous = self.Signal.HandlerListHead
+		while previous and previous.Next ~= self do
+			previous = previous.Next
 		end
 
-		if prev then
-			prev._next = self._next
+		if previous then
+			previous.Next = self.Next
 		end
 	end
 end
@@ -111,23 +140,74 @@ end
 Connection.disconnect = Connection.Disconnect
 Connection.Destroy = Connection.Disconnect
 
-function Connection:__tostring()
+function ConnectionPrivate:__tostring()
 	return "Connection"
 end
 
 --[=[
-	@within Signal
-	@type ConnectionFn (...any) -> ()
-
 	A function connected to a signal.
+	@type ConnectionFunction (...any) -> ()
+	@within Signal
 ]=]
 
---[=[
-	@class Signal
+export type Signal<Function, Arguments...> = {
+	Connect: (self: Signal<Function, Arguments...>, Function: Function) -> Connection,
+	Once: (self: Signal<Function, Arguments...>, Function: Function) -> Connection,
+	ConnectOnce: (self: Signal<Function, Arguments...>, Function: Function) -> Connection,
 
+	GetConnections: (self: Signal<Function, Arguments...>) -> {Connection},
+	IsConnectedTo: (self: Signal<Function, Arguments...>) -> boolean,
+
+	Fire: (self: Signal<Function, Arguments...>, Arguments...) -> (),
+	FireDeferred: (self: Signal<Function, Arguments...>, Arguments...) -> (),
+	FireDeferredUnsafe: (self: Signal<Function, Arguments...>, Arguments...) -> (),
+
+	Wait: (self: Signal<Function, Arguments...>) -> Arguments...,
+
+	DisconnectAll: (self: Signal<Function, Arguments...>) -> (),
+	Destroy: (self: Signal<Function, Arguments...>) -> (),
+}
+export type VoidSignal = Signal<() -> ()>
+type Private<Function, Arguments...> = {
+	HandlerListHead: ConnectionPrivate<Function, Arguments...>?,
+	ProxyHandler: RBXScriptConnection?,
+
+	Connect: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
+	Once: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
+	ConnectOnce: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
+
+	GetConnections: (self: Private<Function, Arguments...>) -> {Connection},
+	IsConnectedTo: (self: Private<Function, Arguments...>) -> boolean,
+
+	Fire: (self: Private<Function, Arguments...>, Arguments...) -> (),
+	FireDeferred: (self: Private<Function, Arguments...>, Arguments...) -> (),
+	FireDeferredUnsafe: (self: Private<Function, Arguments...>, Arguments...) -> (),
+
+	Wait: (self: Private<Function, Arguments...>) -> Arguments...,
+
+	DisconnectAll: (self: Private<Function, Arguments...>) -> (),
+	Destroy: (self: Private<Function, Arguments...>) -> (),
+}
+type Static = {
+	ClassName: "Signal",
+	new: <Function, Arguments...>(janitor: JanitorLike?) -> Signal<Function, Arguments...>,
+	Wrap: <Function, Arguments...>(signal: RBXScriptSignal, janitor: JanitorLike?) -> Signal<Function, Arguments...>,
+
+	Is: (value: any) -> boolean,
+	instanceof: (value: any) -> boolean,
+}
+type PrivateStatic = Static & {__tostring: (self: Private<any, ...any>) -> string}
+
+type JanitorLike = {
+	Add: (self: JanitorLike, object: any, method: boolean | string | nil, index: any?) -> any,
+	[any]: any,
+}
+
+--[=[
 	Signals allow events to be dispatched and handled.
 
 	For example:
+
 	```lua
 	local signal = Signal.new()
 
@@ -137,21 +217,24 @@ end
 
 	signal:Fire("Hello world!")
 	```
+
+	@class Signal
 ]=]
-local Signal = {}
-Signal.ClassName = "Signal"
-Signal.__index = Signal
+local Signal = {} :: Signal<any, ...any> & Static
+local Private = Signal :: Private<any, ...any> & PrivateStatic
+Signal.ClassName = "Signal";
+(Signal :: any).__index = Signal
 
 --[=[
-	Constructs a new Signal
+	Constructs a new Signal.
 
-	@return Signal
+	@param janitor? Janitor -- Adds the Signal to the Janitor.
+	@return Signal<Function, Arguments...>
 ]=]
-function Signal.new(janitor)
-	local self = setmetatable({
-		_handlerListHead = false;
-		_proxyHandler = nil;
-	}, Signal)
+function Signal.new<Function, Arguments...>(janitor): Signal<Function, Arguments...>
+	local self: Private<Function, Arguments...> = setmetatable({}, Signal) :: never
+	self.HandlerListHead = nil
+	self.ProxyHandler = nil
 
 	if janitor then
 		janitor:Add(self, "Destroy")
@@ -163,46 +246,57 @@ end
 --[=[
 	Constructs a new Signal that wraps around an RBXScriptSignal.
 
-	@param rbxScriptSignal RBXScriptSignal -- Existing RBXScriptSignal to wrap
-	@return Signal
-
 	For example:
+
 	```lua
 	local signal = Signal.Wrap(workspace.ChildAdded)
 	signal:Connect(function(part) print(part.Name .. " added") end)
 	Instance.new("Part").Parent = workspace
 	```
+
+	@param rbxScriptSignal RBXScriptSignal -- Existing RBXScriptSignal to wrap
+	@param janitor? Janitor -- Adds the Signal to the Janitor.
+	@return Signal
 ]=]
-function Signal.Wrap(rbxScriptSignal: RBXScriptSignal, janitor)
-	local self = Signal.new(janitor)
-	self._proxyHandler = rbxScriptSignal:Connect(function(...)
+function Signal.Wrap<Function, Arguments...>(rbxScriptSignal, janitor): Signal<Function, Arguments...>
+	local self: Private<Function, Arguments...> = setmetatable({}, Signal) :: never
+	self.HandlerListHead = nil
+	self.ProxyHandler = rbxScriptSignal:Connect(function(...)
 		self:Fire(...)
 	end)
+
+	if janitor then
+		janitor:Add(self, "Destroy")
+	end
 
 	return self
 end
 
 --[=[
-	Checks if the given object is a Signal.
+	Checks if the given value is a Signal.
 
-	@param obj any -- Object to check
-	@return boolean -- `true` if the object is a Signal.
+	@param value unknown -- Object to check.
+	@return boolean -- `true` if the value is a Signal.
 ]=]
-function Signal.Is(obj)
-	return type(obj) == "table" and getmetatable(obj) == Signal
-end
-function Signal.instanceof(obj)
-	if obj == Signal then
-		return true
-	end
-	return type(obj) == "table" and getmetatable(obj) == Signal
+function Signal.Is(value)
+	return type(value) == "table" and getmetatable(value) == Signal
 end
 
 --[=[
-	@param fn ConnectionFn
-	@return SignalConnection
+	A shorthand for [Signal.Is].
 
-	Connects a function to the signal, which will be called anytime the signal is fired.
+	@function instanceof
+	@within Signal
+
+	@param value unknown -- Object to check.
+	@return boolean -- `true` if the value is a Signal.
+]=]
+Signal.instanceof = Signal.Is
+
+--[=[
+	Connects a function to the signal, which will be called anytime the signal
+	is fired.
+
 	```lua
 	signal:Connect(function(msg, num)
 		print(msg, num)
@@ -210,14 +304,23 @@ end
 
 	signal:Fire("Hello", 25)
 	```
+
+	@method Connect
+	@within Signal
+
+	@param callback (Arguments...) -> () -- The function you are connecting.
+	@return Connection
 ]=]
-function Signal:Connect(fn)
-	local connection = Connection.new(self, fn)
-	if self._handlerListHead then
-		connection._next = self._handlerListHead
-		self._handlerListHead = connection
+function Private:Connect(callback)
+	local connection = Connection.new(self, callback)
+	local private = connection :: ConnectionPrivate<any, ...any>
+
+	local handlerListHead = self.HandlerListHead
+	if handlerListHead then
+		private.Next = handlerListHead
+		self.HandlerListHead = private
 	else
-		self._handlerListHead = connection
+		self.HandlerListHead = private
 	end
 
 	return connection
@@ -225,19 +328,17 @@ end
 
 --[=[
 	@deprecated v1.3.0 -- Use `Signal:Once` instead.
-	@param fn ConnectionFn
-	@return SignalConnection
+	@param callback (Arguments...) -> () -- The function you are connecting.
+	@return Connection
 ]=]
-function Signal:ConnectOnce(fn)
-	return self:Once(fn)
+function Signal:ConnectOnce(callback)
+	return self:Once(callback)
 end
 
 --[=[
-	@param fn ConnectionFn
-	@return SignalConnection
-
 	Connects a function to the signal, which will be called the next time the signal fires. Once
 	the connection is triggered, it will disconnect itself.
+
 	```lua
 	signal:Once(function(msg, num)
 		print(msg, num)
@@ -246,53 +347,58 @@ end
 	signal:Fire("Hello", 25)
 	signal:Fire("This message will not go through", 10)
 	```
+
+	@param callback (Arguments...) -> () -- The function you are connecting.
+	@return Connection
 ]=]
-function Signal:Once(fn)
+function Signal:Once(callback)
 	local connection
-	local done = false
+	local hasFired = false
 	connection = self:Connect(function(...)
-		if done then
+		if hasFired then
 			return
 		end
 
-		done = true
+		hasFired = true
 		connection:Disconnect()
-		fn(...)
+		callback(...)
 	end)
 
 	return connection
 end
 
-function Signal:GetConnections()
-	local items = {}
-	local item = self._handlerListHead
+--[=[
+	Gets all the connections in the signal.
+
+	@method GetConnections
+	@within Signal
+
+	@return {Connection}
+]=]
+function Private:GetConnections()
+	local items: {Connection} = {}
+	local length = 0
+
+	local item = self.HandlerListHead
 	while item do
-		table.insert(items, item)
-		item = item._next
+		length += 1
+		items[length] = item
+		item = item.Next
 	end
 
 	return items
 end
-function Signal:IsConnectedTo()
-	return not not self._handlerListHead
-end
 
--- Disconnect all handlers. Since we use a linked list it suffices to clear the
--- reference to the head handler.
 --[=[
-	Disconnects all connections from the signal.
-	```lua
-	signal:DisconnectAll()
-	```
-]=]
-function Signal:DisconnectAll()
-	local item = self._handlerListHead
-	while item do
-		item.Connected = false
-		item = item._next
-	end
+	Checks if there are any active connections in the signal.
 
-	self._handlerListHead = false
+	@method IsConnectedTo
+	@within Signal
+
+	@return boolean
+]=]
+function Private:IsConnectedTo()
+	return not not self.HandlerListHead
 end
 
 -- Signal:Fire(...) implemented by running the handler functions on the
@@ -300,54 +406,81 @@ end
 -- to us, that means that it yielded to the Roblox scheduler and has been taken
 -- over by Roblox scheduling, meaning we have to make a new coroutine runner.
 --[=[
-	@param ... any
+	Fire the signal, which will call all of the connected functions with the
+	given arguments.
 
-	Fire the signal, which will call all of the connected functions with the given arguments.
 	```lua
 	signal:Fire("Hello")
 
 	-- Any number of arguments can be fired:
 	signal:Fire("Hello", 32, {Test = "Test"}, true)
 	```
+
+	@method Fire
+	@within Signal
+
+	@param ... Arguments...
 ]=]
-function Signal:Fire(...)
-	local item = self._handlerListHead
+function Private:Fire(...)
+	local item = self.HandlerListHead
 	while item do
 		if item.Connected then
-			if not freeRunnerThread then
-				freeRunnerThread = coroutine.create(runEventHandlerInFreeThread)
+			if not FreeRunnerThread then
+				FreeRunnerThread = coroutine.create(RunEventHandlerInFreeThread)
 			end
 
-			task.spawn(freeRunnerThread, item._fn, ...)
+			task.spawn(FreeRunnerThread :: thread, item.Function, ...)
 		end
 
-		item = item._next
+		item = item.Next
 	end
 end
 
 --[=[
-	@param ... any
+	Same as [Signal.Fire], but uses `task.defer` internally & doesn't take
+	advantage of thread reuse.
 
-	Same as `Fire`, but uses `task.defer` internally & doesn't take advantage of thread reuse.
 	```lua
 	signal:FireDeferred("Hello")
 	```
+
+	@method FireDeferred
+	@within Signal
+
+	@param ... Arguments...
 ]=]
-function Signal:FireDeferred(...)
-	local item = self._handlerListHead
+function Private:FireDeferred(...)
+	local item = self.HandlerListHead
 	while item do
-		task.defer(item._fn, ...)
-		item = item._next
+		task.defer(item.Function, ...)
+		item = item.Next
 	end
 end
 
 --[=[
-	@return ... any
-	@yields
+	An "unsafe" version of [Signal.FireDeferred] that uses recycled threads
+	to fire. Don't know if this will work the exact same, therefore it is
+	unsafe.
 
-	Yields the current thread until the signal is fired, and returns the arguments fired from the signal.
-	Yielding the current thread is not always desirable. If the desire is to only capture the next event
-	fired, using `ConnectOnce` might be a better solution.
+	@method FireDeferredUnsafe
+	@within Signal
+
+	@param ... Arguments...
+]=]
+function Private:FireDeferredUnsafe(...)
+	local item = self.HandlerListHead
+	while item do
+		FastDefer(item.Function, ...)
+		item = item.Next
+	end
+end
+
+--[=[
+	Yields the current thread until the signal is fired, and returns the
+	arguments fired from the signal. Yielding the current thread is not always
+	desirable. If the desire is to only capture the next event fired, using
+	[Signal.Once] might be a better solution.
+
 	```lua
 	task.spawn(function()
 		local msg, num = signal:Wait()
@@ -355,17 +488,20 @@ end
 	end)
 	signal:Fire("Hello", 32)
 	```
+
+	@yields
+	@return ... Arguments...
 ]=]
 function Signal:Wait()
 	local waitingCoroutine = coroutine.running()
-	local connection
-	local done = false
+	local connection: Connection
+	local hasFired = false
 	connection = self:Connect(function(...)
-		if done then
+		if hasFired then
 			return
 		end
 
-		done = true
+		hasFired = true
 		connection:Disconnect()
 		task.spawn(waitingCoroutine, ...)
 	end)
@@ -374,20 +510,48 @@ function Signal:Wait()
 end
 
 --[=[
-	Cleans up the signal.
+	Disconnect all handlers. Since we use a linked list it suffices to clear
+	the reference to the head handler.
 
+	```lua
+	signal:DisconnectAll()
+	```
+
+	@method DisconnectAll
+	@within Signal
+]=]
+function Private:DisconnectAll()
+	local item = self.HandlerListHead
+	while item do
+		item.Connected = false
+		item = item.Next
+	end
+
+	self.HandlerListHead = nil
+end
+
+--[=[
+	Cleans up the signal and renders it completely unusable.
+
+	:::tip Cleanups
 	Technically, this is only necessary if the signal is created using
-	`Signal.Wrap`. Connections should be properly GC'd once the signal
-	is no longer referenced anywhere. However, it is still good practice
-	to include ways to strictly clean up resources. Calling `Destroy`
-	on a signal will also disconnect all connections immediately.
+	[Signal.Wrap]. Connections should be properly GC'd once the signal is no
+	longer referenced anywhere. However, it is still good practice to include
+	ways to strictly clean up resources. Calling [Signal.Destroy] on a signal
+	will also disconnect all connections immediately.
+	:::
+
 	```lua
 	signal:Destroy()
 	```
+
+	@method Destroy
+	@within Signal
 ]=]
-function Signal:Destroy()
+function Private:Destroy()
 	self:DisconnectAll()
-	local proxyHandler = rawget(self, "_proxyHandler")
+
+	local proxyHandler = self.ProxyHandler
 	if proxyHandler then
 		proxyHandler:Disconnect()
 	end
@@ -396,48 +560,8 @@ function Signal:Destroy()
 	setmetatable(self, nil)
 end
 
-function Signal:__tostring()
+function Private:__tostring()
 	return "Signal"
 end
 
-export type Signal<Values...> = {
-	ClassName: "Signal",
-
-	Connect: (self: Signal<Values...>, Function: (Values...) -> ()) -> RBXScriptConnection,
-	Once: (self: Signal<Values...>, Function: (Values...) -> ()) -> RBXScriptConnection,
-	ConnectOnce: (self: Signal<Values...>, Function: (Values...) -> ()) -> RBXScriptConnection,
-	GetConnections: (self: Signal<Values...>) -> {RBXScriptConnection},
-	IsConnectedTo: (self: Signal<Values...>) -> boolean,
-	DisconnectAll: (self: Signal<Values...>) -> (),
-	Fire: (self: Signal<Values...>, Values...) -> (),
-	FireDeferred: (self: Signal<Values...>, Values...) -> (),
-	Wait: (self: Signal<Values...>) -> Values...,
-	Destroy: (self: Signal<Values...>) -> (),
-}
-export type VoidSignal = Signal<>
-export type SmartSignal<Function, Values...> = {
-	ClassName: "Signal",
-
-	Connect: (self: SmartSignal<Function, Values...>, Function: Function) -> RBXScriptConnection,
-	Once: (self: SmartSignal<Function, Values...>, Function: Function) -> RBXScriptConnection,
-	ConnectOnce: (self: SmartSignal<Function, Values...>, Function: Function) -> RBXScriptConnection,
-	GetConnections: (self: SmartSignal<Function, Values...>) -> {RBXScriptConnection},
-	IsConnectedTo: (self: SmartSignal<Function, Values...>) -> boolean,
-	DisconnectAll: (self: SmartSignal<Function, Values...>) -> (),
-	Fire: (self: SmartSignal<Function, Values...>, Values...) -> (),
-	FireDeferred: (self: SmartSignal<Function, Values...>, Values...) -> (),
-	Wait: (self: SmartSignal<Function, Values...>) -> Values...,
-	Destroy: (self: SmartSignal<Function, Values...>) -> (),
-}
-
-type WrapGeneric = (rbxScriptSignal: RBXScriptSignal, janitor: unknown) -> SmartSignal<(...any) -> (), ...any>
-type Wrap = WrapGeneric
-
-return table.freeze(Signal :: never) :: {
-	ClassName: "Signal",
-
-	new: <Function, Values...>(janitor: unknown) -> SmartSignal<Function, Values...>,
-	Wrap: Wrap,
-	Is: (value: any) -> boolean,
-	instanceof: (value: any) -> boolean,
-}
+return table.freeze(Signal :: Static)

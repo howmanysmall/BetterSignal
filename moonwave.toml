@@ -1,0 +1,24 @@
+classOrder = ["Signal"]
+changelog = false
+gitSourceBranch = "main"
+
+[docusaurus]
+tagline = "Yet another Signal implementation."
+
+[[navbar.items]]
+href = "https://discord.gg/nhDpg96Srt"
+label = "Discord"
+position = "right"
+
+[[navbar.items]]
+href = "https://twitter.com/howmanysmaII"
+label = "Twitter"
+position = "right"
+
+[home]
+enabled = true
+includeReadme = false
+
+# [[home.features]]
+# title = ""
+# description = ""
