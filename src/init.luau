@@ -4,31 +4,32 @@
 
 local FastDefer = require(script.FastDefer)
 
--- -----------------------------------------------------------------------------
---               Batched Yield-Safe Signal Implementation                     --
--- This is a Signal class which has effectively identical behavior to a       --
--- normal RBXScriptSignal, with the only difference being a couple extra      --
--- stack frames at the bottom of the stack trace when an error is thrown.     --
--- This implementation caches runner coroutines, so the ability to yield in   --
--- the signal handlers comes at minimal extra cost over a naive signal        --
--- implementation that either always or never spawns a thread.                --
---                                                                            --
--- API:                                                                       --
---   local Signal = require(THIS MODULE)                                      --
---   local sig = Signal.new()                                                 --
---   local connection = sig:Connect(function(arg1, arg2, ...) ... end)        --
---   sig:Fire(arg1, arg2, ...)                                                --
---   connection:Disconnect()                                                  --
---   sig:DisconnectAll()                                                      --
---   local arg1, arg2, ... = sig:Wait()                                       --
---                                                                            --
--- License:                                                                   --
---   Licensed under the MIT license.                                          --
---                                                                            --
--- Authors:                                                                   --
---   stravant - July 31st, 2021 - Created the file.                           --
---   sleitnick - August 3rd, 2021 - Modified for Knit.                        --
--- -----------------------------------------------------------------------------
+-- --------------------------------------------------------------------------------------------------------
+--               Batched Yield-Safe Signal Implementation                                                --
+-- This is a Signal class which has effectively identical behavior to a                                  --
+-- normal RBXScriptSignal, with the only difference being a couple extra                                 --
+-- stack frames at the bottom of the stack trace when an error is thrown.                                --
+-- This implementation caches runner coroutines, so the ability to yield in                              --
+-- the signal handlers comes at minimal extra cost over a naive signal                                   --
+-- implementation that either always or never spawns a thread.                                           --
+--                                                                                                       --
+-- API:                                                                                                  --
+--   local Signal = require(THIS MODULE)                                                                 --
+--   local sig = Signal.new()                                                                            --
+--   local connection = sig:Connect(function(arg1, arg2, ...) ... end)                                   --
+--   sig:Fire(arg1, arg2, ...)                                                                           --
+--   connection:Disconnect()                                                                             --
+--   sig:DisconnectAll()                                                                                 --
+--   local arg1, arg2, ... = sig:Wait()                                                                  --
+--                                                                                                       --
+-- License:                                                                                              --
+--   Licensed under the MIT license.                                                                     --
+--                                                                                                       --
+-- Authors:                                                                                              --
+--   stravant - July 31st, 2021 - Created the file.                                                      --
+--   sleitnick - August 3rd, 2021 - Modified for Knit.                                                   --
+--   HowManySmall - July 30th, 2024 - Added several new features and strict mode.                        --
+-- --------------------------------------------------------------------------------------------------------
 
 -- The currently idle thread to run the next handler on
 local FreeRunnerThread: thread? = nil
@@ -221,18 +222,13 @@ type Private<Function, Arguments...> = {
 }
 type Static = {
 	ClassName: "Signal",
-	new: <Function, Arguments...>(janitor: JanitorLike?) -> Signal<Function, Arguments...>,
-	Wrap: <Function, Arguments...>(signal: RBXScriptSignal, janitor: JanitorLike?) -> Signal<Function, Arguments...>,
+	new: <Function, Arguments...>(janitor: {[any]: any}?) -> Signal<Function, Arguments...>,
+	Wrap: <Function, Arguments...>(signal: RBXScriptSignal, janitor: {[any]: any}?) -> Signal<Function, Arguments...>,
 
 	Is: (value: any) -> boolean,
 	instanceof: (value: any) -> boolean,
 }
 type PrivateStatic = Static & {__tostring: (self: Private<any, ...any>) -> string}
-
-type JanitorLike = {
-	Add: (self: JanitorLike, object: any, method: boolean | string | nil, index: any?) -> any,
-	[any]: any,
-}
 
 --[=[
 	Signals allow events to be dispatched and handled.
