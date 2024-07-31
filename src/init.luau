@@ -3,6 +3,7 @@
 --!strict
 
 local FastDefer = require(script.FastDefer)
+local IsDeferred = require(script.IsDeferred)
 
 -- --------------------------------------------------------------------------------------------------------
 --               Batched Yield-Safe Signal Implementation                                                --
@@ -70,8 +71,15 @@ end
 	@interface Connection
 	@field Connected boolean
 	@field Disconnect (self: Connection) -> ()
+	@field Destroy (self: Connection) -> ()
+	@field disconnect (self: Connection) -> ()
 	@within Signal
 ]=]
+
+type Connectable<Function, Arguments...> = {
+	Connect: (self: Connectable<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
+}
+type RbxScriptSignal<Function, Arguments...> = RBXScriptSignal & Connectable<Function, Arguments...>
 
 export type Connection = {
 	Connected: boolean,
@@ -96,6 +104,36 @@ type ConnectionStatic = {
 	new: <Function, Arguments...>(signal: Private<Function, Arguments...>, callback: Function) -> Connection,
 }
 type ConnectionStaticPrivate = ConnectionStatic & {__tostring: (self: Connection) -> string}
+
+type Private<Function, Arguments...> = {
+	DebugMode: boolean,
+
+	HandlerListHead: ConnectionPrivate<Function, Arguments...>?,
+	ProxyHandler: RBXScriptConnection?,
+	YieldedThreads: {[thread]: true}?,
+
+	Connect: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
+	Once: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
+	ConnectOnce: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
+
+	ConnectClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
+	OnceClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
+	ConnectOnceClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
+
+	GetConnections: (self: Private<Function, Arguments...>) -> {Connection},
+	IsConnectedTo: (self: Private<Function, Arguments...>) -> boolean,
+
+	Fire: (self: Private<Function, Arguments...>, Arguments...) -> (),
+	FireDeferred: (self: Private<Function, Arguments...>, Arguments...) -> (),
+	FireDeferredUnsafe: (self: Private<Function, Arguments...>, Arguments...) -> (),
+	FireBindable: (self: Private<Function, Arguments...>, Arguments...) -> (),
+	FireBindableUnsafe: (self: Private<Function, Arguments...>, Arguments...) -> (),
+
+	Wait: (self: Private<Function, Arguments...>) -> Arguments...,
+
+	DisconnectAll: (self: Private<Function, Arguments...>) -> (),
+	Destroy: (self: Private<Function, Arguments...>) -> (),
+}
 
 -- Connection class
 local Connection = {} :: Connection & ConnectionStatic
@@ -151,7 +189,10 @@ end
 	@within Signal
 ]=]
 
+local IS_DEFERRED = IsDeferred()
+
 export type Signal<Function, Arguments...> = {
+	DebugMode: boolean,
 	Connect: (self: Signal<Function, Arguments...>, Function: Function) -> Connection,
 	Once: (self: Signal<Function, Arguments...>, Function: Function) -> Connection,
 	ConnectOnce: (self: Signal<Function, Arguments...>, Function: Function) -> Connection,
@@ -166,6 +207,8 @@ export type Signal<Function, Arguments...> = {
 	Fire: (self: Signal<Function, Arguments...>, Arguments...) -> (),
 	FireDeferred: (self: Signal<Function, Arguments...>, Arguments...) -> (),
 	FireDeferredUnsafe: (self: Signal<Function, Arguments...>, Arguments...) -> (),
+	FireBindable: (self: Signal<Function, Arguments...>, Arguments...) -> (),
+	FireBindableUnsafe: (self: Signal<Function, Arguments...>, Arguments...) -> (),
 
 	Wait: (self: Signal<Function, Arguments...>) -> Arguments...,
 
@@ -175,6 +218,8 @@ export type Signal<Function, Arguments...> = {
 export type VoidSignal = Signal<() -> ()>
 export type SmartSignal<Function, Arguments...> = Signal<Function, Arguments...>
 export type ClassicSignal<T...> = {
+	DebugMode: boolean,
+
 	Connect: (self: ClassicSignal<T...>, Function: (T...) -> ()) -> Connection,
 	Once: (self: ClassicSignal<T...>, Function: (T...) -> ()) -> Connection,
 	ConnectOnce: (self: ClassicSignal<T...>, Function: (T...) -> ()) -> Connection,
@@ -189,6 +234,8 @@ export type ClassicSignal<T...> = {
 	Fire: (self: ClassicSignal<T...>, T...) -> (),
 	FireDeferred: (self: ClassicSignal<T...>, T...) -> (),
 	FireDeferredUnsafe: (self: ClassicSignal<T...>, T...) -> (),
+	FireBindable: (self: ClassicSignal<T...>, T...) -> (),
+	FireBindableUnsafe: (self: ClassicSignal<T...>, T...) -> (),
 
 	Wait: (self: ClassicSignal<T...>) -> T...,
 
@@ -196,30 +243,6 @@ export type ClassicSignal<T...> = {
 	Destroy: (self: ClassicSignal<T...>) -> (),
 }
 
-type Private<Function, Arguments...> = {
-	HandlerListHead: ConnectionPrivate<Function, Arguments...>?,
-	ProxyHandler: RBXScriptConnection?,
-
-	Connect: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
-	Once: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
-	ConnectOnce: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
-
-	ConnectClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
-	OnceClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
-	ConnectOnceClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
-
-	GetConnections: (self: Private<Function, Arguments...>) -> {Connection},
-	IsConnectedTo: (self: Private<Function, Arguments...>) -> boolean,
-
-	Fire: (self: Private<Function, Arguments...>, Arguments...) -> (),
-	FireDeferred: (self: Private<Function, Arguments...>, Arguments...) -> (),
-	FireDeferredUnsafe: (self: Private<Function, Arguments...>, Arguments...) -> (),
-
-	Wait: (self: Private<Function, Arguments...>) -> Arguments...,
-
-	DisconnectAll: (self: Private<Function, Arguments...>) -> (),
-	Destroy: (self: Private<Function, Arguments...>) -> (),
-}
 type Static = {
 	ClassName: "Signal",
 	new: <Function, Arguments...>(janitor: any?) -> Signal<Function, Arguments...>,
@@ -236,10 +259,10 @@ type PrivateStatic = Static & {__tostring: (self: Private<any, ...any>) -> strin
 	For example:
 
 	```lua
-	local signal = Signal.new()
+	local signal: Signal<(message: string) -> (), string> = Signal.new()
 
-	signal:Connect(function(msg)
-		print("Got message:", msg)
+	signal:Connect(function(message) -- message type is inferred and the parameter name is as well :)
+		print("Got message:", message)
 	end)
 
 	signal:Fire("Hello world!")
@@ -253,6 +276,15 @@ Signal.ClassName = "Signal";
 (Signal :: any).__index = Signal
 
 --[=[
+	Whether or not to do a warning when a thread is suspended when
+	[Signal.DisconnectAll] is called. By default it is `false`.
+
+	@since v2.1.0
+	@prop DebugMode boolean
+	@within Signal
+]=]
+
+--[=[
 	Constructs a new Signal.
 
 	@param janitor? Janitor -- Adds the Signal to the Janitor.
@@ -260,8 +292,10 @@ Signal.ClassName = "Signal";
 ]=]
 function Signal.new<Function, Arguments...>(janitor): Signal<Function, Arguments...>
 	local self: Private<Function, Arguments...> = setmetatable({}, Signal) :: never
+	self.DebugMode = false
 	self.HandlerListHead = nil
 	self.ProxyHandler = nil
+	self.YieldedThreads = nil
 
 	if janitor then
 		janitor:Add(self, "Destroy")
@@ -287,14 +321,17 @@ end
 ]=]
 function Signal.Wrap<Function, Arguments...>(rbxScriptSignal, janitor): Signal<Function, Arguments...>
 	local self: Private<Function, Arguments...> = setmetatable({}, Signal) :: never
+	self.DebugMode = false
 	self.HandlerListHead = nil
-	self.ProxyHandler = rbxScriptSignal:Connect(function(...)
-		self:Fire(...)
-	end)
+	self.YieldedThreads = nil
 
 	if janitor then
 		janitor:Add(self, "Destroy")
 	end
+
+	self.ProxyHandler = rbxScriptSignal:Connect(function(...)
+		self:Fire(...)
+	end)
 
 	return self
 end
@@ -506,7 +543,13 @@ end
 function Private:FireDeferred(...)
 	local item = self.HandlerListHead
 	while item do
-		task.defer(item.Function, ...)
+		local connection = item
+		task.defer(function(...)
+			if connection.Connected then
+				connection.Function(...)
+			end
+		end, ...)
+
 		item = item.Next
 	end
 end
@@ -514,7 +557,8 @@ end
 --[=[
 	An "unsafe" version of [Signal.FireDeferred] that uses recycled threads
 	to fire. Don't know if this will work the exact same, therefore it is
-	unsafe.
+	unsafe. This should be faster than even [Signal.Fire] though, or around its
+	performance level.
 
 	@since v2.0.0
 	@method FireDeferredUnsafe
@@ -525,10 +569,45 @@ end
 function Private:FireDeferredUnsafe(...)
 	local item = self.HandlerListHead
 	while item do
-		FastDefer(item.Function, ...)
+		local connection = item
+		FastDefer(function(...)
+			if connection.Connected then
+				connection.Function(...)
+			end
+		end, ...)
+
 		item = item.Next
 	end
 end
+
+--[=[
+	This function mirrors how a [BindableEvent] would be fired given the
+	current [Workspace.SignalBehavior] setting. If it is set to
+	`Enum.SignalBehavior.Deferred`, it will use [Signal.FireDeferred] and if it
+	is set to `Enum.SignalBehavior.Immediate`, it will use [Signal.Fire].
+
+	@since v2.1.0
+	@method FireBindable
+	@within Signal
+
+	@param ... Arguments...
+]=]
+Signal.FireBindable = if IS_DEFERRED then Signal.FireDeferred else Signal.Fire
+
+--[=[
+	This function mirrors how a [BindableEvent] would be fired given the
+	current [Workspace.SignalBehavior] setting. If it is set to
+	`Enum.SignalBehavior.Deferred`, it will use [Signal.FireDeferredUnsafe]
+	and if it is set to `Enum.SignalBehavior.Immediate`, it will use
+	[Signal.Fire].
+
+	@since v2.1.0
+	@method FireBindableUnsafe
+	@within Signal
+
+	@param ... Arguments...
+]=]
+Signal.FireBindableUnsafe = if IS_DEFERRED then Signal.FireDeferredUnsafe else Signal.Fire
 
 --[=[
 	Yields the current thread until the signal is fired, and returns the
@@ -541,24 +620,29 @@ end
 		local msg, num = signal:Wait()
 		print(msg, num) --> "Hello", 32
 	end)
+
 	signal:Fire("Hello", 32)
 	```
+
+	@method Wait
+	@within Signal
 
 	@yields
 	@return ... Arguments...
 ]=]
-function Signal:Wait()
-	local waitingCoroutine = coroutine.running()
-	local connection: Connection
-	local hasFired = false
-	connection = self:Connect(function(...)
-		if hasFired then
-			return
-		end
+function Private:Wait()
+	local yieldedThreads = self.YieldedThreads :: {[thread]: true}
+	if not yieldedThreads then
+		yieldedThreads = {}
+		self.YieldedThreads = yieldedThreads
+	end
 
-		hasFired = true
-		connection:Disconnect()
-		task.spawn(waitingCoroutine, ...)
+	local thread = coroutine.running()
+	yieldedThreads[thread] = true
+
+	self:Once(function(...)
+		yieldedThreads[thread] = nil
+		task.spawn(thread, ...)
 	end)
 
 	return coroutine.yield()
@@ -583,6 +667,20 @@ function Private:DisconnectAll()
 	end
 
 	self.HandlerListHead = nil
+
+	local yieldedThreads = self.YieldedThreads
+	if yieldedThreads then
+		local debugMode = self.DebugMode
+		for thread in yieldedThreads do
+			if coroutine.status(thread) == "suspended" then
+				if debugMode then
+					warn(debug.traceback(thread, "signal disconnected; yielded thread cancelled", 2))
+				end
+				task.cancel(thread)
+			end
+		end
+		table.clear(yieldedThreads)
+	end
 end
 
 --[=[

@@ -1,6 +1,6 @@
 [package]
 name = "howmanysmall/better-signal"
-version = "2.0.3"
+version = "2.1.0"
 registry = "https://github.com/UpliftGames/wally-index"
 realm = "shared"
 description = "A slightly modified Signal library."
