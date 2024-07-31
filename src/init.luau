@@ -77,7 +77,7 @@ end
 ]=]
 
 type Connectable<Function, Arguments...> = {
-	Connect: (self: Connectable<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
+	Connect: (self: Connectable<Function, Arguments...>, callback: Function) -> RBXScriptConnection,
 }
 type RbxScriptSignal<Function, Arguments...> = RBXScriptSignal & Connectable<Function, Arguments...>
 
@@ -112,13 +112,13 @@ type Private<Function, Arguments...> = {
 	ProxyHandler: RBXScriptConnection?,
 	YieldedThreads: {[thread]: true}?,
 
-	Connect: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
-	Once: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
-	ConnectOnce: (self: Private<Function, Arguments...>, Function: Function) -> Connection,
+	Connect: (self: Private<Function, Arguments...>, callback: Function) -> Connection,
+	Once: (self: Private<Function, Arguments...>, callback: Function) -> Connection,
+	ConnectOnce: (self: Private<Function, Arguments...>, callback: Function) -> Connection,
 
-	ConnectClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
-	OnceClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
-	ConnectOnceClassic: (self: Private<Function, Arguments...>, Function: Function) -> RBXScriptConnection,
+	ConnectClassic: (self: Private<Function, Arguments...>, callback: Function) -> RBXScriptConnection,
+	OnceClassic: (self: Private<Function, Arguments...>, callback: Function) -> RBXScriptConnection,
+	ConnectOnceClassic: (self: Private<Function, Arguments...>, callback: Function) -> RBXScriptConnection,
 
 	GetConnections: (self: Private<Function, Arguments...>) -> {Connection},
 	IsConnectedTo: (self: Private<Function, Arguments...>) -> boolean,
@@ -162,10 +162,11 @@ function ConnectionPrivate:Disconnect()
 	-- currently sitting on this node will be able to iterate forwards off of
 	-- it, but any subsequent fire calls will not hit it, and it will be GCed
 	-- when no more fire calls are sitting on it.
-	if self.Signal.HandlerListHead == self then
-		self.Signal.HandlerListHead = self.Next
+	local signal = self.Signal
+	local previous = signal.HandlerListHead
+	if previous == self then
+		signal.HandlerListHead = self.Next
 	else
-		local previous = self.Signal.HandlerListHead
 		while previous and previous.Next ~= self do
 			previous = previous.Next
 		end
@@ -376,15 +377,21 @@ Signal.instanceof = Signal.Is
 	@return Connection
 ]=]
 function Private:Connect(callback)
-	local connection = Connection.new(self, callback)
-	local private = connection :: ConnectionPrivate<any, ...any>
+	-- TODO: optimize this further
+	local connection: ConnectionPrivate<any, ...any> = setmetatable({
+		Connected = true;
+
+		Function = callback;
+		Next = nil;
+		Signal = self;
+	}, Connection) :: never
 
 	local handlerListHead = self.HandlerListHead
 	if handlerListHead then
-		private.Next = handlerListHead
-		self.HandlerListHead = private
+		connection.Next = handlerListHead
+		self.HandlerListHead = connection
 	else
-		self.HandlerListHead = private
+		self.HandlerListHead = connection
 	end
 
 	return connection
@@ -527,6 +534,13 @@ function Private:Fire(...)
 	end
 end
 
+-- cheese it? yeah
+local function DeferExecution<Function, Arguments...>(connection: ConnectionPrivate<any, Arguments...>, ...: Arguments...)
+	if connection.Connected then
+		connection.Function(...)
+	end
+end
+
 --[=[
 	Same as [Signal.Fire], but uses `task.defer` internally & doesn't take
 	advantage of thread reuse.
@@ -542,14 +556,9 @@ end
 ]=]
 function Private:FireDeferred(...)
 	local item = self.HandlerListHead
-	while item do
-		local connection = item
-		task.defer(function(...)
-			if connection.Connected then
-				connection.Function(...)
-			end
-		end, ...)
 
+	while item do
+		task.defer(DeferExecution, item, ...)
 		item = item.Next
 	end
 end
@@ -569,13 +578,7 @@ end
 function Private:FireDeferredUnsafe(...)
 	local item = self.HandlerListHead
 	while item do
-		local connection = item
-		FastDefer(function(...)
-			if connection.Connected then
-				connection.Function(...)
-			end
-		end, ...)
-
+		FastDefer(DeferExecution, item, ...)
 		item = item.Next
 	end
 end
