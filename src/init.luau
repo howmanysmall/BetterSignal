@@ -222,8 +222,8 @@ type Private<Function, Arguments...> = {
 }
 type Static = {
 	ClassName: "Signal",
-	new: <Function, Arguments...>(janitor: {[any]: any}?) -> Signal<Function, Arguments...>,
-	Wrap: <Function, Arguments...>(signal: RBXScriptSignal, janitor: {[any]: any}?) -> Signal<Function, Arguments...>,
+	new: <Function, Arguments...>(janitor: any?) -> Signal<Function, Arguments...>,
+	Wrap: <Function, Arguments...>(signal: RBXScriptSignal, janitor: any?) -> Signal<Function, Arguments...>,
 
 	Is: (value: any) -> boolean,
 	instanceof: (value: any) -> boolean,
@@ -398,6 +398,7 @@ end
 	The exact same as [Signal.Connect], but it returns an [RBXScriptConnection]
 	instead.
 
+	@since v2.0.0
 	@method ConnectClassic
 	@within Signal
 
@@ -410,6 +411,7 @@ Signal.ConnectOnceClassic = Signal.ConnectOnce :: never
 	The exact same as [Signal.Once], but it returns an [RBXScriptConnection]
 	instead.
 
+	@since v2.0.0
 	@method OnceClassic
 	@within Signal
 
@@ -443,6 +445,7 @@ end
 --[=[
 	Checks if there are any active connections in the signal.
 
+	@since v1.0.1
 	@method IsConnectedTo
 	@within Signal
 
@@ -513,6 +516,7 @@ end
 	to fire. Don't know if this will work the exact same, therefore it is
 	unsafe.
 
+	@since v2.0.0
 	@method FireDeferredUnsafe
 	@within Signal
 
